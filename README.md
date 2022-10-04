@@ -16,6 +16,7 @@ make
 
 ### download prebuilt binaries
 
+https://github.com/ling-zhou/rust-sshpass/releases/
 
 ## Notes
 
