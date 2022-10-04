@@ -1,0 +1,12 @@
+[package]
+name = "sshpass"
+version = "1.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+libc = { version = "0.2.134", features = [ "extra_traits" ] }
+exec = "0.3.1"
+nix = "0.25.0"
+clap = "4.0.8"
