@@ -24,6 +24,6 @@ This repository is fully compatible with https://github.com/kevinburke/sshpass
 
 **Comparison with https://github.com/kevinburke/sshpass**
 
-✅ 1. option parsing is not affected by subcommand options
+✅ 1. the main options parsing is not affected by the subcommand options
 
 ❗ 2. the original password from '-p' can not be hidden because of the limit of rust
