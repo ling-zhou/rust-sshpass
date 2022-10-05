@@ -1,2 +1,5 @@
 target/
 git_push.sh
+Cargo.lock
+files.txt
+sshpass-*.tar.xz

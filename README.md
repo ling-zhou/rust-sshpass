@@ -26,4 +26,8 @@ This repository is fully compatible with https://github.com/kevinburke/sshpass
 
 ✅ 1. the main options parsing is not affected by the subcommand options
 
-❗ 2. the original password from '-p' can not be hidden because of the limit of rust
+✅ 2. feature: the passwd env-var name can be customized
+
+✅ 3. signals can be handled correctly
+
+❗ 4. the original password from '-p' can not be hidden because of the limit of rust
