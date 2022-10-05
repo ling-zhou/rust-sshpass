@@ -7,12 +7,15 @@ use nix::errno::Errno;
 use nix::poll::{ppoll, PollFd, PollFlags};
 use nix::pty::*;
 use nix::sys::signal::*;
+use nix::sys::time::{TimeSpec, TimeValLike};
+use nix::unistd::Pid;
 use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::prelude::*; // or else: 'read' method not found in `File`
 use std::process::exit;
 use std::os::unix::io::FromRawFd;
 use std::os::unix::io::RawFd;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -39,6 +42,8 @@ enum PasswdSource {
 static mut DEBUG_LOG_FILE: String = String::new();
 static mut PTY: OpenptyResult = OpenptyResult{master: 0, slave: 0};
 static mut VERBOSE: bool = false;
+static mut GOT_CHILD_SIGNAL: AtomicBool = AtomicBool::new(false);
+static mut GOT_EXIT_SIGNAL: AtomicBool = AtomicBool::new(false);
 
 macro_rules! write_log {
     ($log_file:expr, $($arg:tt)*) => {
@@ -98,7 +103,7 @@ macro_rules! err_exit_if {
     }
 }
 
-macro_rules! safe_call {
+macro_rules! no_eintr_call {
     ($call_expr:expr) => {
         loop {
             let rc = $call_expr;
@@ -343,16 +348,13 @@ fn interact(mut file: &File, passwd_prompt: &String, passwd: &String) -> ErrCode
     ErrCode::NoError
 }
 
-extern "C" fn sigchld_handler(_signal: libc::c_int) {
-    debug!("got SIGCHLD");
-}
-
-extern "C" fn window_resize_handler(_signal: libc::c_int) {
+extern "C" fn window_resize_handler(signal: libc::c_int) {
     let ttysize = libc::winsize{ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0};
 
     unsafe {
         if libc::ioctl(0, libc::TIOCGWINSZ, &ttysize) == 0 {
-            debug!("window resize to ({} {})", ttysize.ws_row, ttysize.ws_col);
+            debug!("got signal: {:?}, window resize to ({}, {})",
+                    signal, ttysize.ws_row, ttysize.ws_col);
             libc::ioctl(PTY.slave, libc::TIOCSWINSZ, &ttysize);
         } else {
             eprintln!("pid: {}, ioctl failed: {}", libc::getpid(), errno_str());
@@ -360,19 +362,76 @@ extern "C" fn window_resize_handler(_signal: libc::c_int) {
     }
 }
 
-fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
+extern "C" fn child_handler(signal: libc::c_int) {
+    debug!("got signal: {:?}", signal);
+    unsafe { GOT_CHILD_SIGNAL.store(true, Ordering::Relaxed); }
+}
+
+extern "C" fn exit_handler(signal: libc::c_int) {
+    debug!("got signal: {:?}", signal);
+    unsafe { GOT_EXIT_SIGNAL.store(true, Ordering::Relaxed); }
+}
+
+fn register_signal_handler(signum: Signal, handler: extern fn(libc::c_int)) {
     unsafe {
-        signal(SIGCHLD, SigHandler::Handler(sigchld_handler))
-            .expect("failed to register sigchld_handler");
-        signal(SIGWINCH, SigHandler::Handler(window_resize_handler))
-            .expect("failed to register window_resize_handler");
+        signal(signum, SigHandler::Handler(handler))
+            .expect("failed to register signal handler");
     }
+}
+
+fn got_child_signal() -> bool {
+    return unsafe { GOT_CHILD_SIGNAL.load(Ordering::Relaxed) };
+}
+
+fn got_exit_signal() -> bool {
+    return unsafe { GOT_EXIT_SIGNAL.load(Ordering::Relaxed) };
+}
+
+fn need_exit() -> bool {
+    return got_child_signal() || got_exit_signal();
+}
+
+fn kill_child_process(pid: i32) {
+    debug!("kill child process({})", pid);
+
+    match kill(Pid::from_raw(pid), SIGTERM) {
+        Ok(_) => (),
+        Err(Errno::ESRCH) => {
+            debug!("child process({}) is already dead", pid)
+        },
+        Err(x) => {
+            err_exit!(ErrCode::RuntimeError, "failed to kill child process({}): {}",
+                        pid, Errno::desc(x));
+        }
+    }
+}
+
+fn close_pty(name: &str) {
+    unsafe {
+        debug!("{}: close pty master({}), close pty slave({})", name, PTY.master, PTY.slave);
+        libc::close(PTY.master);
+        libc::close(PTY.slave);
+    }
+}
+
+fn waitpid(pid: i32, status: &mut i32, options: i32) -> i32 {
+    unsafe {
+        no_eintr_call!(libc::waitpid(pid, status as *mut libc::c_int, options))
+    }
+}
+
+fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
+    register_signal_handler(SIGWINCH, window_resize_handler);
+    register_signal_handler(SIGCHLD, child_handler);
+    register_signal_handler(SIGINT, exit_handler);
+    register_signal_handler(SIGHUP, exit_handler);
+    register_signal_handler(SIGTERM, exit_handler);
 
     let slave_dev_name = unsafe {
         PTY = openpty(None, None).expect("openpty failed");
         get_ptsname(PTY.master)
     };
-    debug!("parent: pty: {:?}, slave_name: {}", PTY, slave_dev_name);
+    debug!("pty: {:?}, slave_name: {}", PTY, slave_dev_name);
 
     let child_pid = unsafe { libc::fork() };
 
@@ -383,9 +442,7 @@ fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
             let gid = libc::setsid();
             err_exit_if!(gid < 0, ErrCode::RuntimeError, "child: setsid failed: {}", errno_str());
 
-            debug!("child: pty: {:?}, slave_name: {}", PTY, slave_dev_name);
-            libc::close(PTY.master);
-            libc::close(PTY.slave);
+            close_pty("child");
 
             let slave_dev_name_cstr = CString::new(slave_dev_name.as_bytes())
                 .expect("child: failed to new CString");
@@ -395,7 +452,7 @@ fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
                             slave_dev_name, errno_str());
 
             debug!("child: close pty slave: {}", PTY.slave);
-            libc::close(PTY.slave);
+            libc::close(PTY.slave); // we do not need it open
 
             debug!("child: execvp({:?})", remaining_args);
             let err = exec::execvp(&remaining_args[0], remaining_args);
@@ -405,42 +462,40 @@ fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
 
     let mut err_code = ErrCode::NoError;
     let mut status = 0;
-    let mut sigmask = SigSet::empty();
-    let sigmask_ppoll = SigSet::empty();
     let mut fds = unsafe { [PollFd::new(PTY.master, PollFlags::POLLIN)] };
     let master_file = unsafe { File::from_raw_fd(PTY.master) };
-
-    sigmask.add(Signal::SIGCHLD);
-    sigprocmask(SigmaskHow::SIG_SETMASK, Some(&sigmask), None)
-          .expect("sigprocmask failed");
+    let ppoll_timeout = TimeSpec::milliseconds(500);
+    let ppoll_sigmask = SigSet::empty();
 
     loop {
-        let ppoll_res = ppoll(&mut fds, None, Some(sigmask_ppoll));
+        let options = if err_code == ErrCode::NoError && !need_exit() { libc::WNOHANG } else { 0 };
+
+        if err_code != ErrCode::NoError {
+            close_pty("parent");
+        }
+
+        if got_exit_signal() {
+            kill_child_process(child_pid);
+        }
+
+        let wait_id = waitpid(child_pid, &mut status, options);
+        debug!("need_exit: {:?}, options: {:?}, err_code: {:?}, wait_id: {:?}, status: {:?}",
+            need_exit(), options, err_code, wait_id, status);
+
+        if wait_id != 0 {
+            break
+        }
+
+        let ppoll_res = ppoll(&mut fds, Some(ppoll_timeout), Some(ppoll_sigmask));
         let nfds = if let Ok(nfds) = ppoll_res { nfds } else { -1 };
         debug!("nfds: {}, errno_str: {}", nfds, errno_str());
 
         if nfds > 0 {
             err_code = interact(&master_file, passwd_prompt, passwd);
         }
-
-        if err_code != ErrCode::NoError {
-            unsafe {
-                debug!("close pty master({}), close pty slave({})", PTY.master, PTY.slave);
-                libc::close(PTY.master);
-                libc::close(PTY.slave);
-            }
-        }
-
-        let options = if err_code == ErrCode::NoError { libc::WNOHANG } else { 0 };
-        let wait_id = unsafe {
-            safe_call!(libc::waitpid(child_pid, &mut status as *mut libc::c_int, options))
-        };
-
-        debug!("err_code: {:?}, wait_id: {}", err_code, wait_id);
-        if err_code != ErrCode::NoError || wait_id != 0 {
-            break
-        }
     }
+
+    close_pty("parent");
 
     if err_code != ErrCode::NoError {
         exit(err_code as i32);
@@ -465,20 +520,20 @@ fn get_ptsname(master_fd: RawFd) -> String {
     }
 }
 
-fn main() {
-    let matches = Command::new("rust-version sshpass")
+fn register_options() -> ArgMatches {
+    return Command::new("rust-version sshpass")
         .trailing_var_arg(true)
         .allow_external_subcommands(true)
         .override_usage("sshpass options command args")
         .about("when no args given, password will be taken from stdin")
         .term_width(120)
-        .version("1.0.0")
+        .version("1.1.0")
         .arg(Arg::new("passwd_from_env")
             .help("Input passwd from env-var")
             .short('e')
             .action(ArgAction::SetTrue))
         .arg(Arg::new("passwd_env_name")
-            .help("The passwd env-var name")
+            .help("Custom passwd env-var name")
             .short('n')
             .default_value("SSHPASS")
             .action(ArgAction::Set))
@@ -515,7 +570,9 @@ fn main() {
             .index(1)
             .required(true))
         .get_matches();
+}
 
-    let (passwd_prompt, passwd, remaining_args) = parse_options(&matches);
+fn main() {
+    let (passwd_prompt, passwd, remaining_args) = parse_options(&register_options());
     run(&passwd_prompt, &passwd, &remaining_args);
 }
