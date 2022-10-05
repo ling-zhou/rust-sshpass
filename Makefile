@@ -7,7 +7,7 @@ all: test
 
 copy: install
 	sudo install --strip ~/.cargo/bin/sshpass /usr/local/bin/sshpass-$(ARCH)-linux
-	sudo ln -sf /usr/local/bin/sshpass{-$(ARCH)-linux,}
+	cd /usr/local/bin && sudo ln -fs sshpass-$(ARCH)-linux sshpass
 
 test: install
 	~/.cargo/bin/sshpass -h
