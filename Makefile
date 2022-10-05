@@ -28,4 +28,5 @@ check_ver:
 	@[[ "$(VER)" ]] || { echo "\$$(VER) needs to be set" && exit 1; }
 
 clean:
-	rm -f ~/.cargo/bin/sshpass
+	cargo clean
+	rm -f ~/.cargo/bin/sshpass sshpass-*.tar.xz
