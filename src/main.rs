@@ -134,7 +134,7 @@ fn trim_passwd(s: &str) -> String {
 }
 
 fn write_passwd(mut file: &File, passwd: &String) {
-    debug!("write passwd: {}", passwd);
+    debug!(r#"write passwd: "{}""#, passwd);
     let data = format!("{}\n", passwd);
 
     file
@@ -205,14 +205,19 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
     let mut passwd_src = PasswdSource::Stdin;
     let mut passwd: String = String::new();
 
-    if option_valid(matches, "passwd_env", index_of_command) {
+    if option_valid(matches, "passwd_from_env", index_of_command) {
         passwd_src = check_passwd_src(passwd_src, PasswdSource::Env);
 
-        passwd = std::env::var("SSHPASS")
-            .expect(r#"failed to get the value of env-var "SSHPASS""#);
+        let env_name: String = matches
+            .get_one::<String>("passwd_env_name")
+            .expect(r#"failed to get the value of option "-n""#)
+            .into();
+
+        passwd = std::env::var(&env_name)
+            .expect(&format!("failed to get the value of env-var {:?}", &env_name));
         passwd = trim_passwd(&passwd);
 
-        debug!(r#"passwd from env: "{}""#, passwd);
+        debug!(r#"passwd from env("{}"): "{}""#, env_name, passwd);
     }
 
     if option_valid(matches, "passwd_file", index_of_command) {
@@ -468,10 +473,15 @@ fn main() {
         .about("when no args given, password will be taken from stdin")
         .term_width(120)
         .version("1.0.0")
-        .arg(Arg::new("passwd_env")
-            .help("Input passwd from env-var 'SSHPASS'")
+        .arg(Arg::new("passwd_from_env")
+            .help("Input passwd from env-var")
             .short('e')
             .action(ArgAction::SetTrue))
+        .arg(Arg::new("passwd_env_name")
+            .help("The passwd env-var name")
+            .short('n')
+            .default_value("SSHPASS")
+            .action(ArgAction::Set))
         .arg(Arg::new("passwd_file")
             .help("Input passwd from file")
             .short('f')
