@@ -414,7 +414,7 @@ fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
 }
 
 fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
-    let command: String = matches
+    let command = matches
         .get_one::<String>("command")
         .expect(r#"failed to get "command""#)
         .into();
@@ -436,13 +436,10 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
     debug!(r#"command: "{}", index_of_command: {}, remaining_args: {:?}"#,
         command, index_of_command, remaining_args);
 
-    let mut passwd_prompt: String = "assword: ".into();
-    if option_valid(matches, "passwd_prompt", index_of_command) {
-        passwd_prompt = matches
-            .get_one::<String>("passwd_prompt")
-            .expect(r#"failed to get the value of option "-P""#)
-            .into();
-    }
+    let passwd_prompt = matches
+        .get_one::<String>("passwd_prompt")
+        .expect(r#"failed to get the value of option "-P""#)
+        .into();
 
     debug!(r#"passwd prompt: "{}""#, passwd_prompt);
 
@@ -556,6 +553,7 @@ fn register_options() -> ArgMatches {
         .arg(Arg::new("passwd_prompt")
             .help("Customize passwd prompt")
             .short('P')
+            .default_value("assword: ")
             .action(ArgAction::Set))
         .arg(Arg::new("verbose")
             .help("Verbose output(enable debug log)")

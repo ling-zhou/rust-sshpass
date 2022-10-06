@@ -1,11 +1,12 @@
-.PHONY: all clean check_os check_ver install release copy test
+.PHONY: all clean check_os install release copy test
 
 ARCH := $(shell arch)
 OS := $(shell uname | tr A-Z a-z)
+VER := ${shell grep -m1 -oP 'version\("\K\d+\.\d+\.\d+' src/main.rs}
 
 all: test
 
-release: check_ver copy
+release: copy
 	tar cJf sshpass-$(VER)-$(ARCH)-$(OS).tar.xz -C /usr/local/bin/ -h sshpass
 
 copy: install
@@ -23,9 +24,6 @@ install: check_os
 
 check_os:
 	@[[ $(OS) == linux ]] || { echo "os($(OS)) is unsupported yet" && exit 1; }
-
-check_ver:
-	@[[ "$(VER)" ]] || { echo "\$$(VER) needs to be set" && exit 1; }
 
 clean:
 	cargo clean
