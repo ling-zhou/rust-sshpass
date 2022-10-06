@@ -528,7 +528,7 @@ fn register_options() -> ArgMatches {
         .override_usage("sshpass options command args")
         .about("when no args given, password will be taken from stdin")
         .term_width(120)
-        .version("1.1.0")
+        .version("1.1.1")
         .arg(Arg::new("passwd_from_env")
             .help("Input passwd from env-var")
             .short('e')
