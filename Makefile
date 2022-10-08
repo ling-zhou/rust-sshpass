@@ -1,5 +1,6 @@
 .PHONY: all clean check_os install release copy test
 
+SHELL := $(shell which bash)
 ARCH := $(shell arch)
 OS := $(shell uname | tr A-Z a-z)
 VER := ${shell grep -m1 -oP 'version\("\K\d+\.\d+\.\d+' src/main.rs}
