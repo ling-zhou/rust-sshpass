@@ -262,7 +262,7 @@ fn get_ptsname(master_fd: RawFd) -> String {
     ptr_to_str(unsafe { libc::ptsname(master_fd) }, "ptsname")
 }
 
-fn ptr_to_str(ptr: *mut i8, func: &str) -> String {
+fn ptr_to_str(ptr: *mut libc::c_char, func: &str) -> String {
     err_exit_if!(ptr.is_null(), ErrCode::RuntimeError, "{} failed: {}", func, errno_str());
 
     let cstr = unsafe { CStr::from_ptr(ptr) };
