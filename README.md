@@ -22,7 +22,7 @@ https://github.com/ling-zhou/rust-sshpass/releases/
 
 This repository is fully compatible with https://github.com/kevinburke/sshpass
 
-**Comparison with https://github.com/kevinburke/sshpass**
+**Comparison with https://github.com/kevinburke/sshpass:**
 
 ❗ 1. the original password from '-p' can not be hidden because of the limit of rust
 

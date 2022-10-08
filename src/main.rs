@@ -191,8 +191,8 @@ extern "C" fn window_resize_handler(signal: libc::c_int) {
 
     unsafe {
         if libc::ioctl(0, libc::TIOCGWINSZ, &ttysize) == 0 {
-            debug!("got signal: {:?}, window resize to ({}, {})",
-                    signal, ttysize.ws_row, ttysize.ws_col);
+            debug!("got signal: {}({:?}), window resize to ({}, {})",
+                    signal, signal_str(signal), ttysize.ws_row, ttysize.ws_col);
             libc::ioctl(PTY.slave, libc::TIOCSWINSZ, &ttysize);
         } else {
             eprintln!("pid: {}, ioctl failed: {}", libc::getpid(), errno_str());
@@ -201,12 +201,12 @@ extern "C" fn window_resize_handler(signal: libc::c_int) {
 }
 
 extern "C" fn child_handler(signal: libc::c_int) {
-    debug!("got signal: {:?}", signal);
+    debug!("got signal: {}({:?})", signal, signal_str(signal));
     unsafe { GOT_CHILD_SIGNAL.store(true, Ordering::Relaxed); }
 }
 
 extern "C" fn exit_handler(signal: libc::c_int) {
-    debug!("got signal: {:?}", signal);
+    debug!("got signal: {}({:?})", signal, signal_str(signal));
     unsafe { GOT_EXIT_SIGNAL.store(true, Ordering::Relaxed); }
 }
 
@@ -254,14 +254,19 @@ fn errno_str() -> &'static str {
     Errno::desc(Errno::last())
 }
 
-fn get_ptsname(master_fd: RawFd) -> String {
-    unsafe {
-        let name_ptr = libc::ptsname(master_fd);
-        err_exit_if!(name_ptr.is_null(), ErrCode::RuntimeError, "ptsname failed: {}", errno_str());
+fn signal_str(signal: i32) -> String {
+    ptr_to_str(unsafe { libc::strsignal(signal) }, "strsignal")
+}
 
-        let name = CStr::from_ptr(name_ptr);
-        name.to_string_lossy().into_owned()
-    }
+fn get_ptsname(master_fd: RawFd) -> String {
+    ptr_to_str(unsafe { libc::ptsname(master_fd) }, "ptsname")
+}
+
+fn ptr_to_str(ptr: *mut i8, func: &str) -> String {
+    err_exit_if!(ptr.is_null(), ErrCode::RuntimeError, "{} failed: {}", func, errno_str());
+
+    let cstr = unsafe { CStr::from_ptr(ptr) };
+    cstr.to_string_lossy().into_owned()
 }
 
 fn search(target: &[u8], mut pos: usize, data: &[u8]) -> usize {
@@ -381,7 +386,7 @@ fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
             close_pty!("parent");
         }
 
-        if got_exit_signal() {
+        if need_exit() {
             kill_child_process(child_pid);
         }
 
@@ -523,12 +528,14 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
 
 fn register_options() -> ArgMatches {
     return Command::new("rust-version sshpass")
-        .trailing_var_arg(true)
+        .about("noninteractive ssh password provider.\n\
+            when no passwd given, it will be taken from stdin.")
+        .after_help("report bugs to <https://github.com/ling-zhou/rust-sshpass>.")
+        .override_usage("sshpass options command options_of_command")
         .allow_external_subcommands(true)
-        .override_usage("sshpass options command args")
-        .about("when no args given, password will be taken from stdin")
+        .trailing_var_arg(true)
         .term_width(120)
-        .version("1.1.1")
+        .version("1.1.2")
         .arg(Arg::new("passwd_from_env")
             .help("Input passwd from env-var")
             .short('e')
