@@ -2,7 +2,7 @@
 // @brief one more robust version of sshpass, but not only because of rust
 
 // https://github.com/clap-rs/clap/blob/master/CHANGELOG.md
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 use nix::errno::Errno;
 use nix::poll::{ppoll, PollFd, PollFlags};
 use nix::pty::*;
@@ -535,7 +535,7 @@ fn register_options() -> ArgMatches {
         .allow_external_subcommands(true)
         .trailing_var_arg(true)
         .term_width(120)
-        .version("1.1.2")
+        .version("1.1.3")
         .arg(Arg::new("passwd_from_env")
             .help("Input passwd from env-var")
             .short('e')
@@ -552,7 +552,8 @@ fn register_options() -> ArgMatches {
         .arg(Arg::new("passwd_fd")
             .help("Input passwd from file descriptor")
             .short('d')
-            .action(ArgAction::Set))
+            .action(ArgAction::Set)
+            .value_parser(value_parser!(i32)))
         .arg(Arg::new("passwd")
             .help("Input passwd")
             .short('p')
