@@ -41,7 +41,7 @@ enum PasswdSource {
 
 static mut DEBUG_LOG_FILE: String = String::new();
 static mut PTY: OpenptyResult = OpenptyResult{master: 0, slave: 0};
-static mut VERBOSE: bool = false;
+static mut DEBUG: bool = false;
 static mut GOT_CHILD_SIGNAL: AtomicBool = AtomicBool::new(false);
 static mut GOT_EXIT_SIGNAL: AtomicBool = AtomicBool::new(false);
 
@@ -58,29 +58,30 @@ macro_rules! close_pty {
 }
 
 macro_rules! write_log {
-    ($log_file:expr, $($arg:tt)*) => {
-        let data = format!($($arg)*);
-        let data = format!("{}:{} {}\n", file!(), line!(), data);
+    ($($arg:tt)*) => {
+        #[allow(unused_unsafe)]
+        unsafe {
+            let data = format!($($arg)*);
+            let data = format!("{}:{} {}\n", file!(), line!(), data);
 
-        let mut file = File::options()
-            .create(true)
-            .append(true)
-            .open($log_file)
-            .expect("failed to open log file");
+            let mut file = File::options()
+                .create(true)
+                .append(true)
+                .open(&DEBUG_LOG_FILE)
+                .expect("failed to open log file");
 
-        file
-            .write_all(data.as_bytes())
-            .expect("failed to write log");
+            file
+                .write_all(data.as_bytes())
+                .expect("failed to write log");
+        }
     }
 }
 
 macro_rules! debug {
     ($($arg:tt)*) => {
         #[allow(unused_unsafe)]
-        unsafe {
-            if VERBOSE {
-                write_log!(&DEBUG_LOG_FILE, $($arg)*);
-            }
+        if unsafe { DEBUG } {
+            write_log!($($arg)*);
         }
     }
 }
@@ -182,7 +183,7 @@ fn collect_remaining_args(command: &String) -> Vec<String> {
     args[start..].to_vec()
 }
 
-fn option_valid(matches: &ArgMatches, option: &str, index_of_command: usize) -> bool {
+fn option_present(matches: &ArgMatches, option: &str, index_of_command: usize) -> bool {
     return matches.contains_id(option) && matches.index_of(option).unwrap() < index_of_command;
 }
 
@@ -391,8 +392,8 @@ fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
         }
 
         let wait_id = waitpid(child_pid, &mut status, options);
-        debug!("need_exit: {:?}, options: {:?}, err_code: {:?}, wait_id: {:?}, status: {:?}",
-            need_exit(), options, err_code, wait_id, status);
+        // debug!("need_exit: {:?}, options: {:?}, err_code: {:?}, wait_id: {:?}, status: {:?}",
+        //    need_exit(), options, err_code, wait_id, status);
 
         if wait_id != 0 {
             break
@@ -400,7 +401,7 @@ fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
 
         let ppoll_res = ppoll(&mut fds, Some(ppoll_timeout), Some(ppoll_sigmask));
         let nfds = if let Ok(nfds) = ppoll_res { nfds } else { -1 };
-        debug!("nfds: {}, errno_str: {}", nfds, errno_str());
+        // debug!("nfds: {}, errno_str: {}", nfds, errno_str());
 
         if nfds > 0 {
             err_code = interact(&master_file, passwd_prompt, passwd);
@@ -429,10 +430,10 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
     let remaining_args = collect_remaining_args(&command);
 
     unsafe {
-        VERBOSE = option_valid(matches, "verbose", index_of_command);
-        if VERBOSE {
+        DEBUG = option_present(matches, "debug", index_of_command);
+        if DEBUG {
             DEBUG_LOG_FILE = matches
-                .get_one::<String>("debug_log_file")
+                .get_one::<String>("debug-log-file")
                 .expect(r#"failed to get the value of option "-l""#)
                 .into();
         }
@@ -451,7 +452,7 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
     let mut passwd_src = PasswdSource::Stdin;
     let mut passwd: String = String::new();
 
-    if option_valid(matches, "passwd_from_env", index_of_command) {
+    if option_present(matches, "passwd_from_env", index_of_command) {
         passwd_src = check_passwd_src(passwd_src, PasswdSource::Env);
 
         let env_name: String = matches
@@ -466,7 +467,7 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
         debug!(r#"passwd from env("{}"): "{}""#, env_name, passwd);
     }
 
-    if option_valid(matches, "passwd_file", index_of_command) {
+    if option_present(matches, "passwd_file", index_of_command) {
         passwd_src = check_passwd_src(passwd_src, PasswdSource::File);
 
         let passwd_file: String = matches
@@ -481,7 +482,7 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
         debug!(r#"passwd file: "{}", passwd from file: "{}""#, passwd_file, passwd);
     }
 
-    if option_valid(matches, "passwd_fd", index_of_command) {
+    if option_present(matches, "passwd_fd", index_of_command) {
         passwd_src = check_passwd_src(passwd_src, PasswdSource::Fd);
 
         let passwd_fd = *matches
@@ -500,7 +501,7 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
         debug!(r#"passwd fd: "{}", passwd from fd: "{}""#, passwd_fd, passwd);
     }
 
-    if option_valid(matches, "passwd", index_of_command) {
+    if option_present(matches, "passwd", index_of_command) {
         passwd_src = check_passwd_src(passwd_src, PasswdSource::Passwd);
 
         passwd = matches
@@ -535,13 +536,14 @@ fn register_options() -> ArgMatches {
         .allow_external_subcommands(true)
         .trailing_var_arg(true)
         .term_width(120)
-        .version("1.1.3")
+        .version("1.1.4")
         .arg(Arg::new("passwd_from_env")
             .help("Input passwd from env-var")
             .short('e')
             .action(ArgAction::SetTrue))
         .arg(Arg::new("passwd_env_name")
             .help("Customize passwd env-var name")
+            .requires("passwd_from_env")
             .short('n')
             .default_value("SSHPASS")
             .action(ArgAction::Set))
@@ -563,16 +565,18 @@ fn register_options() -> ArgMatches {
             .short('P')
             .default_value("assword: ")
             .action(ArgAction::Set))
-        .arg(Arg::new("verbose")
+        .arg(Arg::new("debug")
             .help("Verbose output(enable debug log)")
+            .alias("verbose")
             .short('v')
+            .long("debug")
             .action(ArgAction::SetTrue))
-        .arg(Arg::new("debug_log_file")
+        .arg(Arg::new("debug-log-file")
             .help("Debug log file")
-            .requires("verbose")
+            .requires("debug")
             .short('l')
-            .long("debug_log_file")
-            .default_value("/tmp/sshpass.log")
+            .long("debug-log-file")
+            .default_value("/dev/stderr")
             .action(ArgAction::Set))
         .arg(Arg::new("command")
             .help("Command to be executed")
