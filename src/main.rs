@@ -532,7 +532,7 @@ fn register_options() -> ArgMatches {
         .about("noninteractive ssh password provider.\n\
             when no passwd given, it will be taken from stdin.")
         .after_help("report bugs to <https://github.com/ling-zhou/rust-sshpass>.")
-        .override_usage("sshpass options command options_of_command")
+        .override_usage("sshpass options command options-of-command")
         .allow_external_subcommands(true)
         .trailing_var_arg(true)
         .term_width(120)
