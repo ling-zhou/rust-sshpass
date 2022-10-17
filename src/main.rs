@@ -364,7 +364,7 @@ fn run(passwd_prompt: &String, passwd: &String, remaining_args: &Vec<String>) {
             err_exit_if!(PTY.slave < 0, ErrCode::RuntimeError, "child: open({}) failed: {}",
                             slave_dev_name, errno_str());
 
-            debug!("child: close pty slave: {}", PTY.slave);
+            debug!("child: close pty slave({})", PTY.slave);
             libc::close(PTY.slave); // we do not need it open
 
             debug!("child: execvp({:?})", remaining_args);
@@ -443,7 +443,7 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
         command, index_of_command, remaining_args);
 
     let passwd_prompt = matches
-        .get_one::<String>("passwd_prompt")
+        .get_one::<String>("passwd-prompt")
         .expect(r#"failed to get the value of option "-P""#)
         .into();
 
@@ -452,11 +452,11 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
     let mut passwd_src = PasswdSource::Stdin;
     let mut passwd: String = String::new();
 
-    if option_present(matches, "passwd_from_env", index_of_command) {
+    if option_present(matches, "passwd-from-env", index_of_command) {
         passwd_src = check_passwd_src(passwd_src, PasswdSource::Env);
 
         let env_name: String = matches
-            .get_one::<String>("passwd_env_name")
+            .get_one::<String>("passwd-env-name")
             .expect(r#"failed to get the value of option "-n""#)
             .into();
 
@@ -467,11 +467,11 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
         debug!(r#"passwd from env("{}"): "{}""#, env_name, passwd);
     }
 
-    if option_present(matches, "passwd_file", index_of_command) {
+    if option_present(matches, "passwd-file", index_of_command) {
         passwd_src = check_passwd_src(passwd_src, PasswdSource::File);
 
         let passwd_file: String = matches
-            .get_one::<String>("passwd_file")
+            .get_one::<String>("passwd-file")
             .expect(r#"failed to get the value of option "-f""#)
             .into();
 
@@ -482,11 +482,11 @@ fn parse_options(matches: &ArgMatches) -> (String, String, Vec<String>) {
         debug!(r#"passwd file: "{}", passwd from file: "{}""#, passwd_file, passwd);
     }
 
-    if option_present(matches, "passwd_fd", index_of_command) {
+    if option_present(matches, "passwd-fd", index_of_command) {
         passwd_src = check_passwd_src(passwd_src, PasswdSource::Fd);
 
         let passwd_fd = *matches
-            .get_one::<i32>("passwd_fd")
+            .get_one::<i32>("passwd-fd")
             .expect(r#"failed to get the value of option "-d""#);
 
         let mut file = unsafe { File::from_raw_fd(passwd_fd) };
@@ -536,22 +536,22 @@ fn register_options() -> ArgMatches {
         .allow_external_subcommands(true)
         .trailing_var_arg(true)
         .term_width(120)
-        .version("1.1.4")
-        .arg(Arg::new("passwd_from_env")
+        .version("1.1.5")
+        .arg(Arg::new("passwd-from-env")
             .help("Input passwd from env-var")
             .short('e')
             .action(ArgAction::SetTrue))
-        .arg(Arg::new("passwd_env_name")
+        .arg(Arg::new("passwd-env-name")
             .help("Customize passwd env-var name")
-            .requires("passwd_from_env")
+            .requires("passwd-from-env")
             .short('n')
             .default_value("SSHPASS")
             .action(ArgAction::Set))
-        .arg(Arg::new("passwd_file")
+        .arg(Arg::new("passwd-file")
             .help("Input passwd from file")
             .short('f')
             .action(ArgAction::Set))
-        .arg(Arg::new("passwd_fd")
+        .arg(Arg::new("passwd-fd")
             .help("Input passwd from file descriptor")
             .short('d')
             .action(ArgAction::Set)
@@ -560,7 +560,7 @@ fn register_options() -> ArgMatches {
             .help("Input passwd")
             .short('p')
             .action(ArgAction::Set))
-        .arg(Arg::new("passwd_prompt")
+        .arg(Arg::new("passwd-prompt")
             .help("Customize passwd prompt")
             .short('P')
             .default_value("assword: ")
